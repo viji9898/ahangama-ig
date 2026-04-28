@@ -1,82 +1,49 @@
 // netlify/functions/redirect.js
 
-const BASE_URL = "https://ahangama.com";
-
-const UTM_CONFIG = {
-  source: "instagram",
-  medium: "social",
-  campaign: "ahangama_ig_2026",
-};
-
-// allowed categories (matches your places structure)
-const VALID_CATEGORIES = new Set([
-  "eat",
-  "stays",
-  "experiences",
-  "culture",
-  "wellness",
-  "surf",
-  "work-long-stays",
-  "getting-around",
-  "shops-essentials",
-  "community",
-  "maps-itineraries",
-]);
-
-const sanitize = (value) =>
-  value
-    ?.toLowerCase()
-    .replace(/[^a-z0-9-_]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-
 exports.handler = async (event) => {
+  const BASE_URL = "https://ahangama.com";
+
   try {
-    const segments = (event.path || "/")
-      .split("/")
-      .filter(Boolean)
-      .map(sanitize);
+    const rawPath = (event.path || "/").trim();
+    const segments = rawPath.split("/").filter(Boolean);
 
-    let targetPath = "/";
+    const readKV = (key) => {
+      const index = segments.indexOf(key);
+      return index >= 0 && segments[index + 1] ? segments[index + 1] : null;
+    };
 
-    // routing logic
-    if (segments[0] === "to") {
-      const section = segments[1];
-      const slug = segments[2];
+    const goal = readKV("g") || "h"; // h = home
+    const venue = readKV("v") || "ig-root";
+    const entry = readKV("e"); // bio, story, reel, ad
+    const creative = readKV("c"); // google-map-v1, coffee-offer-v1, guide-v1
 
-      if (section === "pass") {
-        targetPath = "/pass";
-      } else if (section === "guide") {
-        targetPath = "/guide";
-      } else if (VALID_CATEGORIES.has(section) && slug) {
-        targetPath = `/${section}/${slug}`;
-      }
-    }
-
-    // extract tracking params
-    const venue = sanitize(segments[segments.indexOf("v") + 1]);
-    const surface = sanitize(segments[segments.indexOf("s") + 1]);
-    const creative = sanitize(segments[segments.indexOf("c") + 1]);
-
-    const contentParts = [];
-    if (venue) contentParts.push(venue);
-    if (surface) contentParts.push(surface);
+    const contentParts = [venue];
+    if (entry) contentParts.push(entry);
     if (creative) contentParts.push(creative);
 
-    const utm = new URLSearchParams({
-      utm_source: UTM_CONFIG.source,
-      utm_medium: UTM_CONFIG.medium,
-      utm_campaign: UTM_CONFIG.campaign,
-      utm_content: contentParts.join("__") || "instagram",
+    const utmParams = new URLSearchParams({
+      utm_source: "instagram",
+      utm_medium: "social",
+      utm_campaign: "ig_launch_2026",
+      utm_content: contentParts.join("__"),
+      utm_term: goal,
     });
 
-    const redirectUrl = `${BASE_URL}${targetPath}?${utm.toString()}`;
+    const incomingQuery = event.queryStringParameters || {};
+
+    Object.entries(incomingQuery).forEach(([key, value]) => {
+      if (!key.toLowerCase().startsWith("utm_") && value != null) {
+        utmParams.set(key, value);
+      }
+    });
+
+    const redirectUrl = `${BASE_URL}/?${utmParams.toString()}`;
 
     return {
       statusCode: 302,
       headers: {
         Location: redirectUrl,
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
         "X-Robots-Tag": "noindex, nofollow",
       },
     };
